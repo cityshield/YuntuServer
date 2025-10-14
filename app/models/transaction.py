@@ -2,12 +2,11 @@
 交易和账单模型
 """
 from sqlalchemy import Column, String, Numeric, DateTime, Text, ForeignKey
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 import uuid
 
-from app.db.base import Base
+from app.db.base import Base, UUID
 
 
 class Transaction(Base):
@@ -15,8 +14,8 @@ class Transaction(Base):
 
     __tablename__ = "transactions"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    id = Column(UUID(), primary_key=True, default=uuid.uuid4, index=True)
+    user_id = Column(UUID(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     type = Column(String(50), nullable=False)  # recharge, consume, refund
     amount = Column(Numeric(10, 2), nullable=False)
     balance_after = Column(Numeric(10, 2))
@@ -35,9 +34,9 @@ class Bill(Base):
 
     __tablename__ = "bills"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    task_id = Column(UUID(as_uuid=True), ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True)
+    id = Column(UUID(), primary_key=True, default=uuid.uuid4, index=True)
+    user_id = Column(UUID(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    task_id = Column(UUID(), ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True)
     amount = Column(Numeric(10, 2), nullable=False)
     description = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

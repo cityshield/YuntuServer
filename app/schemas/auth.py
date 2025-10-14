@@ -271,8 +271,8 @@ class UserResponse(BaseModel):
 
     id: UUID
     username: str
-    email: str
-    phone: Optional[str]
+    email: Optional[str]  # 邮箱可选
+    phone: str  # 手机号必填
     avatar: Optional[str]
     balance: float
     member_level: int

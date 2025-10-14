@@ -2,12 +2,11 @@
 任务模型
 """
 from sqlalchemy import Column, String, Integer, Numeric, DateTime, Text, ForeignKey
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 import uuid
 
-from app.db.base import Base
+from app.db.base import Base, UUID
 
 
 class Task(Base):
@@ -15,8 +14,8 @@ class Task(Base):
 
     __tablename__ = "tasks"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    id = Column(UUID(), primary_key=True, default=uuid.uuid4, index=True)
+    user_id = Column(UUID(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     task_name = Column(String(200), nullable=False)
     scene_file = Column(String(500))
     maya_version = Column(String(20))
@@ -53,7 +52,7 @@ class TaskLog(Base):
     __tablename__ = "task_logs"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    task_id = Column(UUID(as_uuid=True), ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True)
+    task_id = Column(UUID(), ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True)
     log_level = Column(String(20), nullable=False)  # INFO, WARNING, ERROR
     message = Column(Text, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

@@ -26,7 +26,7 @@ class AuthService:
         self,
         db: AsyncSession,
         username: str,
-        email: str,
+        email: Optional[str],
         password: str,
         phone: Optional[str] = None,
     ) -> User:
@@ -36,15 +36,15 @@ class AuthService:
         Args:
             db: 数据库会话
             username: 用户名
-            email: 邮箱
+            email: 邮箱（可选）
             password: 密码
-            phone: 手机号（可选）
+            phone: 手机号（必填）
 
         Returns:
             User: 创建的用户对象
 
         Raises:
-            HTTPException: 用户名或邮箱已存在
+            HTTPException: 用户名、邮箱或手机号已存在
         """
         # 检查用户名是否已存在
         result = await db.execute(select(User).where(User.username == username))
@@ -55,16 +55,17 @@ class AuthService:
                 detail="Username already registered",
             )
 
-        # 检查邮箱是否已存在
-        result = await db.execute(select(User).where(User.email == email))
-        existing_email = result.scalar_one_or_none()
-        if existing_email:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Email already registered",
-            )
+        # 检查邮箱是否已存在（如果提供）
+        if email:
+            result = await db.execute(select(User).where(User.email == email))
+            existing_email = result.scalar_one_or_none()
+            if existing_email:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Email already registered",
+                )
 
-        # 检查手机号是否已存在（如果提供）
+        # 检查手机号是否已存在（必填）
         if phone:
             result = await db.execute(select(User).where(User.phone == phone))
             existing_phone = result.scalar_one_or_none()

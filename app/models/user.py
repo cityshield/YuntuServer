@@ -2,12 +2,11 @@
 用户模型
 """
 from sqlalchemy import Column, String, Boolean, Numeric, DateTime, Integer
-from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 import uuid
 
-from app.db.base import Base
+from app.db.base import Base, UUID
 
 
 class User(Base):
@@ -15,10 +14,10 @@ class User(Base):
 
     __tablename__ = "users"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
+    id = Column(UUID(), primary_key=True, default=uuid.uuid4, index=True)
     username = Column(String(50), unique=True, nullable=False, index=True)
-    email = Column(String(100), unique=True, nullable=False, index=True)
-    phone = Column(String(20), unique=True, nullable=True)
+    email = Column(String(100), unique=True, nullable=True, index=True)  # 邮箱可选
+    phone = Column(String(20), unique=True, nullable=False, index=True)  # 手机号必填
     password_hash = Column(String(255), nullable=False)
     avatar = Column(String(255), nullable=True)
     balance = Column(Numeric(10, 2), default=0.00, nullable=False)
