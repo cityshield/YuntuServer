@@ -3,16 +3,25 @@
 """
 from typing import Optional
 from uuid import UUID
-from fastapi import APIRouter, UploadFile, File, HTTPException, Query, Path
+from fastapi import APIRouter, UploadFile, File, HTTPException, Query, Path, Form, Depends
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+import os
+from pathlib import Path as FilePath
+import shutil
 
 from app.services.file_service import file_service
 from app.utils.logger import setup_logger
+from app.dependencies import get_current_user
+from app.models.user import User as DBUser
 
 logger = setup_logger()
 
 router = APIRouter()
+
+# 分片上传临时目录
+TEMP_UPLOAD_DIR = FilePath("./temp_uploads")
+TEMP_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # Pydantic模型
@@ -243,3 +252,140 @@ async def delete_file(
     except Exception as e:
         logger.error(f"Failed to delete file: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to delete file: {str(e)}")
+
+
+class ChunkUploadRequest(BaseModel):
+    """分片上传请求"""
+    taskId: str
+    chunkIndex: int
+    totalChunks: int
+    chunkHash: str
+    chunkData: str  # Base64 encoded
+
+
+class MergeRequest(BaseModel):
+    """合并请求"""
+    taskId: str
+    fileName: str
+    totalChunks: int
+    fileSize: int
+
+
+@router.post("/upload/chunk", summary="上传文件分片")
+async def upload_chunk(
+    request: ChunkUploadRequest,
+    current_user: DBUser = Depends(get_current_user)
+):
+    """
+    上传文件分片
+
+    - **taskId**: 任务ID
+    - **chunkIndex**: 分片索引
+    - **totalChunks**: 总分片数
+    - **chunkHash**: 分片MD5哈希
+    - **chunkData**: Base64编码的分片数据
+    """
+    try:
+        import base64
+
+        # 创建任务临时目录
+        task_temp_dir = TEMP_UPLOAD_DIR / request.taskId
+        task_temp_dir.mkdir(parents=True, exist_ok=True)
+
+        # 解码分片数据
+        chunk_data = base64.b64decode(request.chunkData)
+
+        # 保存分片
+        chunk_file_path = task_temp_dir / f"chunk_{request.chunkIndex}"
+        with open(chunk_file_path, 'wb') as f:
+            f.write(chunk_data)
+
+        logger.info(f"Chunk {request.chunkIndex}/{request.totalChunks} uploaded for task {request.taskId}")
+
+        return JSONResponse(content={
+            "success": True,
+            "message": f"Chunk {request.chunkIndex} uploaded successfully",
+            "chunkIndex": request.chunkIndex
+        })
+
+    except Exception as e:
+        logger.error(f"Failed to upload chunk: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to upload chunk: {str(e)}")
+
+
+@router.post("/upload/merge", summary="合并文件分片")
+async def merge_chunks(
+    request: MergeRequest,
+    current_user: DBUser = Depends(get_current_user)
+):
+    """
+    合并所有分片为完整文件并上传到OSS
+
+    - **taskId**: 任务ID
+    - **fileName**: 文件名
+    - **totalChunks**: 总分片数
+    - **fileSize**: 文件总大小
+    """
+    try:
+        task_temp_dir = TEMP_UPLOAD_DIR / request.taskId
+
+        if not task_temp_dir.exists():
+            raise HTTPException(status_code=404, detail="Task temp directory not found")
+
+        # 合并分片
+        merged_file_path = task_temp_dir / request.fileName
+
+        with open(merged_file_path, 'wb') as merged_file:
+            for i in range(request.totalChunks):
+                chunk_file_path = task_temp_dir / f"chunk_{i}"
+
+                if not chunk_file_path.exists():
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Chunk {i} is missing"
+                    )
+
+                with open(chunk_file_path, 'rb') as chunk_file:
+                    merged_file.write(chunk_file.read())
+
+                # 删除已合并的分片
+                chunk_file_path.unlink()
+
+        logger.info(f"All chunks merged for task {request.taskId}, file: {request.fileName}")
+
+        # 上传合并后的文件到OSS
+        with open(merged_file_path, 'rb') as f:
+            file_content = f.read()
+
+        result = await file_service.upload_scene_file(
+            task_id=UUID(request.taskId),
+            filename=request.fileName,
+            file_content=file_content
+        )
+
+        # 清理临时文件
+        merged_file_path.unlink()
+        task_temp_dir.rmdir()
+
+        logger.info(f"File uploaded to OSS: {request.fileName} for task {request.taskId}")
+
+        return JSONResponse(content={
+            "success": True,
+            "message": "File uploaded successfully",
+            "objectKey": result["object_key"],
+            "url": result["url"],
+            "fileName": request.fileName,
+            "fileSize": request.fileSize
+        })
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to merge chunks: {str(e)}")
+        # 尝试清理临时文件
+        try:
+            if task_temp_dir.exists():
+                shutil.rmtree(task_temp_dir)
+        except:
+            pass
+        raise HTTPException(status_code=500, detail=f"Failed to merge chunks: {str(e)}")
