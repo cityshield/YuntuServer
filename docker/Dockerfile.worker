@@ -1,0 +1,42 @@
+# Celery Worker Dockerfile
+FROM python:3.11-slim
+
+# 设置工作目录
+WORKDIR /app
+
+# 设置环境变量
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    C_FORCE_ROOT=1
+
+# 安装系统依赖
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
+
+# 复制依赖文件
+COPY requirements.txt .
+
+# 安装Python依赖
+RUN pip install --upgrade pip && \
+    pip install -r requirements.txt
+
+# 复制应用代码
+COPY . .
+
+# 创建必要的目录
+RUN mkdir -p /app/logs /app/uploads /app/celerybeat-schedule
+
+# 创建celery用户（避免使用root运行）
+RUN useradd -m -u 1000 celery && \
+    chown -R celery:celery /app
+
+# 切换到celery用户
+USER celery
+
+# 启动命令（将在docker-compose.yml中覆盖）
+CMD ["celery", "-A", "app.tasks.celery_app", "worker", "--loglevel=info"]
