@@ -43,6 +43,10 @@ class Settings(BaseSettings):
     OSS_SCENE_FOLDER: str = "scenes"
     OSS_RESULT_FOLDER: str = "results"
 
+    # Aliyun SMS
+    SMS_SIGN_NAME: str
+    SMS_TEMPLATE_CODE: str
+
     # Celery
     CELERY_BROKER_URL: str
     CELERY_RESULT_BACKEND: str

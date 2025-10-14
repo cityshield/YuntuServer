@@ -14,10 +14,45 @@ from app.schemas.auth import (
     RefreshTokenRequest,
     LogoutRequest,
     UserResponse,
+    SendCodeRequest,
+    SendCodeResponse,
 )
 from app.services.auth_service import auth_service
+from app.services.sms_service import sms_service
 
 router = APIRouter(prefix="/auth", tags=["认证"])
+
+
+@router.post(
+    "/send-code",
+    response_model=SendCodeResponse,
+    status_code=status.HTTP_200_OK,
+    summary="发送短信验证码",
+    description="向指定手机号发送验证码，验证码有效期30分钟",
+)
+async def send_verification_code(
+    request: SendCodeRequest,
+):
+    """
+    发送短信验证码
+
+    - **phone**: 手机号码（中国大陆手机号）
+
+    返回发送结果
+    """
+    result = await sms_service.send_verification_code(request.phone)
+
+    if not result["success"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=result["message"],
+        )
+
+    return SendCodeResponse(
+        success=result["success"],
+        message=result["message"],
+        request_id=result.get("request_id"),
+    )
 
 
 @router.post(
@@ -25,7 +60,7 @@ router = APIRouter(prefix="/auth", tags=["认证"])
     response_model=RegisterResponse,
     status_code=status.HTTP_201_CREATED,
     summary="用户注册",
-    description="创建新用户账号并返回访问令牌",
+    description="使用手机号和验证码注册新用户账号并返回访问令牌",
 )
 async def register(
     user_data: RegisterRequest,
@@ -35,12 +70,21 @@ async def register(
     用户注册
 
     - **username**: 用户名（3-50个字符）
-    - **email**: 邮箱地址
+    - **phone**: 手机号码（必填）
+    - **verification_code**: 短信验证码（6位数字）
     - **password**: 密码（至少6个字符）
-    - **phone**: 手机号（可选）
+    - **email**: 邮箱地址（可选）
 
     返回用户信息和访问令牌
     """
+    # 验证短信验证码
+    is_valid = await sms_service.verify_code(user_data.phone, user_data.verification_code)
+    if not is_valid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="验证码无效或已过期",
+        )
+
     # 创建用户
     user = await auth_service.register_user(
         db=db,

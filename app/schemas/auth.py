@@ -38,6 +38,43 @@ class LoginRequest(BaseModel):
     }
 
 
+class SendCodeRequest(BaseModel):
+    """发送验证码请求"""
+
+    phone: str = Field(
+        ...,
+        max_length=20,
+        description="手机号码",
+        examples=["13800138000"]
+    )
+
+    @field_validator('phone')
+    @classmethod
+    def validate_phone(cls, v: str) -> str:
+        """验证手机号格式"""
+        if not re.match(r'^1[3-9]\d{9}$', v):
+            raise ValueError('手机号格式不正确')
+        return v
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "phone": "13800138000"
+                }
+            ]
+        }
+    }
+
+
+class SendCodeResponse(BaseModel):
+    """发送验证码响应"""
+
+    success: bool = Field(..., description="是否发送成功")
+    message: str = Field(..., description="响应消息")
+    request_id: Optional[str] = Field(None, description="请求ID")
+
+
 class RegisterRequest(BaseModel):
     """注册请求"""
 
@@ -48,10 +85,18 @@ class RegisterRequest(BaseModel):
         description="用户名（3-50个字符，只能包含字母、数字、下划线）",
         examples=["zhangsan"]
     )
-    email: EmailStr = Field(
+    phone: str = Field(
         ...,
-        description="邮箱地址",
-        examples=["zhangsan@example.com"]
+        max_length=20,
+        description="手机号码",
+        examples=["13800138000"]
+    )
+    verification_code: str = Field(
+        ...,
+        min_length=6,
+        max_length=6,
+        description="短信验证码（6位数字）",
+        examples=["123456"]
     )
     password: str = Field(
         ...,
@@ -60,11 +105,10 @@ class RegisterRequest(BaseModel):
         description="密码（至少6个字符）",
         examples=["password123"]
     )
-    phone: Optional[str] = Field(
+    email: Optional[EmailStr] = Field(
         default=None,
-        max_length=20,
-        description="手机号码",
-        examples=["13800138000"]
+        description="邮箱地址（可选）",
+        examples=["zhangsan@example.com"]
     )
 
     @field_validator('username')
@@ -77,10 +121,18 @@ class RegisterRequest(BaseModel):
 
     @field_validator('phone')
     @classmethod
-    def validate_phone(cls, v: Optional[str]) -> Optional[str]:
+    def validate_phone(cls, v: str) -> str:
         """验证手机号格式"""
-        if v is not None and not re.match(r'^1[3-9]\d{9}$', v):
+        if not re.match(r'^1[3-9]\d{9}$', v):
             raise ValueError('手机号格式不正确')
+        return v
+
+    @field_validator('verification_code')
+    @classmethod
+    def validate_code(cls, v: str) -> str:
+        """验证验证码格式"""
+        if not re.match(r'^\d{6}$', v):
+            raise ValueError('验证码必须为6位数字')
         return v
 
     model_config = {
@@ -88,9 +140,10 @@ class RegisterRequest(BaseModel):
             "examples": [
                 {
                     "username": "zhangsan",
-                    "email": "zhangsan@example.com",
+                    "phone": "13800138000",
+                    "verification_code": "123456",
                     "password": "password123",
-                    "phone": "13800138000"
+                    "email": "zhangsan@example.com"
                 }
             ]
         }
