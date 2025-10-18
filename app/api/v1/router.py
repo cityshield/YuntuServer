@@ -2,7 +2,7 @@
 API v1 路由聚合
 """
 from fastapi import APIRouter
-from app.api.v1 import auth, files, users, tasks, logs
+from app.api.v1 import auth, files, users, tasks, logs, config
 
 api_router = APIRouter()
 
@@ -20,6 +20,9 @@ api_router.include_router(tasks.router)
 
 # 日志路由
 api_router.include_router(logs.router)
+
+# 配置路由
+api_router.include_router(config.router)
 
 # 临时的测试端点
 @api_router.get("/ping")
