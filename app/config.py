@@ -43,6 +43,10 @@ class Settings(BaseSettings):
     OSS_SCENE_FOLDER: str = "scenes"
     OSS_RESULT_FOLDER: str = "results"
 
+    # Aliyun STS
+    OSS_ROLE_ARN: str
+    STS_ENDPOINT: str = "sts.cn-beijing.aliyuncs.com"
+
     # Aliyun SMS
     SMS_SIGN_NAME: str
     SMS_TEMPLATE_CODE: str
