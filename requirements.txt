@@ -19,8 +19,10 @@ flower==2.0.1
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 
-# Aliyun OSS
+# Aliyun Services
 oss2==2.18.4
+alibabacloud-dysmsapi20170525==2.0.24
+alibabacloud-tea-openapi==0.3.9
 
 # Pydantic
 pydantic==2.5.0
@@ -34,8 +36,13 @@ httpx==0.25.2
 python-dotenv==1.0.0
 loguru==0.7.2
 
-# Development
+# Development & Testing
 pytest==7.4.3
 pytest-asyncio==0.21.1
+pytest-cov==4.1.0
+pytest-mock==3.12.0
+httpx==0.25.2
+faker==22.0.0
 black==23.12.0
 flake8==6.1.0
+aiosqlite==0.19.0
