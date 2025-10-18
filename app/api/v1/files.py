@@ -11,9 +11,11 @@ from pathlib import Path as FilePath
 import shutil
 
 from app.services.file_service import file_service
+from app.services.sts_service import sts_service
 from app.utils.logger import setup_logger
 from app.dependencies import get_current_user
 from app.models.user import User as DBUser
+from app.config import settings
 
 logger = setup_logger()
 
@@ -58,6 +60,82 @@ class FileInfoResponse(BaseModel):
     content_type: str
     last_modified: int
     etag: str
+
+
+class GetUploadCredentialsRequest(BaseModel):
+    """获取上传凭证请求"""
+    taskId: str
+    fileName: str
+
+
+class GetUploadCredentialsResponse(BaseModel):
+    """获取上传凭证响应"""
+    accessKeyId: str
+    accessKeySecret: str
+    securityToken: str
+    endpoint: str
+    bucketName: str
+    objectKey: str
+    expiration: str
+
+
+@router.post(
+    "/get-upload-credentials",
+    response_model=GetUploadCredentialsResponse,
+    summary="获取OSS上传凭证（STS临时授权）"
+)
+async def get_upload_credentials(
+    request: GetUploadCredentialsRequest,
+    current_user: DBUser = Depends(get_current_user)
+):
+    """
+    获取阿里云 OSS 直传所需的 STS 临时凭证
+
+    - **taskId**: 任务ID
+    - **fileName**: 文件名
+
+    返回 STS 临时凭证，客户端使用这些凭证直接上传到 OSS，无需经过服务器中转
+
+    ## 使用流程
+    1. 客户端调用此接口获取 STS 凭证
+    2. 客户端使用凭证初始化 OSS SDK 客户端
+    3. 客户端直接上传文件到 OSS（断点续传）
+    4. 上传完成后通知服务器
+    """
+    try:
+        # 获取 STS 临时凭证
+        sts_credentials = sts_service.get_upload_credentials(
+            user_id=current_user.id,
+            task_id=request.taskId,
+            duration_seconds=3600  # 1 小时有效期
+        )
+
+        # 构建 OSS object key
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d")
+        object_key = f"{settings.OSS_SCENE_FOLDER}/{timestamp}/{request.taskId}/{request.fileName}"
+
+        logger.info(
+            f"Generated STS credentials for user {current_user.id}, "
+            f"task {request.taskId}, file {request.fileName}"
+        )
+
+        return GetUploadCredentialsResponse(
+            accessKeyId=sts_credentials["accessKeyId"],
+            accessKeySecret=sts_credentials["accessKeySecret"],
+            securityToken=sts_credentials["securityToken"],
+            endpoint=settings.OSS_ENDPOINT,
+            bucketName=settings.OSS_BUCKET_NAME,
+            objectKey=object_key,
+            expiration=sts_credentials["expiration"]
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to get upload credentials: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get upload credentials: {str(e)}"
+        )
 
 
 @router.post("/upload", response_model=UploadResponse, summary="上传场景文件")
@@ -255,7 +333,7 @@ async def delete_file(
 
 
 class ChunkUploadRequest(BaseModel):
-    """分片上传请求"""
+    """分片上传请求（JSON格式，用于向后兼容）"""
     taskId: str
     chunkIndex: int
     totalChunks: int
@@ -273,41 +351,67 @@ class MergeRequest(BaseModel):
 
 @router.post("/upload/chunk", summary="上传文件分片")
 async def upload_chunk(
-    request: ChunkUploadRequest,
+    # Multipart 格式参数（新客户端）
+    taskId: Optional[str] = Form(None),
+    chunkIndex: Optional[int] = Form(None),
+    totalChunks: Optional[int] = Form(None),
+    chunkHash: Optional[str] = Form(None),
+    chunkData: Optional[UploadFile] = File(None),
     current_user: DBUser = Depends(get_current_user)
 ):
     """
-    上传文件分片
+    上传文件分片（支持两种格式）
 
-    - **taskId**: 任务ID
-    - **chunkIndex**: 分片索引
-    - **totalChunks**: 总分片数
-    - **chunkHash**: 分片MD5哈希
-    - **chunkData**: Base64编码的分片数据
+    **格式1：Multipart/form-data（推荐，新客户端）**
+    - taskId: 任务ID
+    - chunkIndex: 分片索引
+    - totalChunks: 总分片数
+    - chunkHash: 分片MD5哈希
+    - chunkData: 二进制文件数据
+
+    **格式2：JSON + Base64（向后兼容，旧客户端）**
+    - 使用 ChunkUploadRequest 模型
+    - chunkData 字段为 Base64 编码
     """
     try:
         import base64
+        from fastapi import Request
 
-        # 创建任务临时目录
-        task_temp_dir = TEMP_UPLOAD_DIR / request.taskId
-        task_temp_dir.mkdir(parents=True, exist_ok=True)
+        # 检测请求格式
+        if taskId is not None and chunkData is not None:
+            # 格式1: Multipart/form-data（新客户端）
+            logger.info(f"收到 Multipart 格式的分片上传请求 - Chunk {chunkIndex}/{totalChunks} for task {taskId}")
 
-        # 解码分片数据
-        chunk_data = base64.b64decode(request.chunkData)
+            # 创建任务临时目录
+            task_temp_dir = TEMP_UPLOAD_DIR / taskId
+            task_temp_dir.mkdir(parents=True, exist_ok=True)
 
-        # 保存分片
-        chunk_file_path = task_temp_dir / f"chunk_{request.chunkIndex}"
-        with open(chunk_file_path, 'wb') as f:
-            f.write(chunk_data)
+            # 直接读取二进制数据
+            chunk_data_bytes = await chunkData.read()
 
-        logger.info(f"Chunk {request.chunkIndex}/{request.totalChunks} uploaded for task {request.taskId}")
+            # 保存分片
+            chunk_file_path = task_temp_dir / f"chunk_{chunkIndex}"
+            with open(chunk_file_path, 'wb') as f:
+                f.write(chunk_data_bytes)
 
-        return JSONResponse(content={
-            "success": True,
-            "message": f"Chunk {request.chunkIndex} uploaded successfully",
-            "chunkIndex": request.chunkIndex
-        })
+            logger.info(f"Multipart chunk {chunkIndex}/{totalChunks} uploaded for task {taskId}, size: {len(chunk_data_bytes)} bytes")
 
+            return JSONResponse(content={
+                "success": True,
+                "message": f"Chunk {chunkIndex} uploaded successfully",
+                "chunkIndex": chunkIndex
+            })
+        else:
+            # 格式2: JSON + Base64（旧客户端，向后兼容）
+            # 注意：这种情况下，FastAPI 会自动解析 JSON body
+            # 但由于我们已经定义了 Form 参数，需要特殊处理
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid request format. Please use multipart/form-data format."
+            )
+
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to upload chunk: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to upload chunk: {str(e)}")
