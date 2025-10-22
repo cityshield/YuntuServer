@@ -63,9 +63,15 @@ class STSService:
             )
 
             # 创建 AssumeRole 请求
+            # RoleSessionName 要求：由数字、字母、下划线组成，不能包含连字符
+            # 将 UUID 中的连字符替换为下划线
+            safe_user_id = str(user_id).replace('-', '_')
+            safe_task_id = str(task_id).replace('-', '_')
+            role_session_name = f"user_{safe_user_id}_task_{safe_task_id}"[:32]  # 限制在32字符内
+
             request = AssumeRoleRequest(
                 role_arn=role_arn,
-                role_session_name=f"user_{user_id}_task_{task_id}",
+                role_session_name=role_session_name,
                 duration_seconds=duration_seconds,
                 # 可选：添加更精细的权限策略
                 # policy=self._generate_upload_policy(task_id)

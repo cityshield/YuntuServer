@@ -98,21 +98,24 @@ class AuthService:
         self, db: AsyncSession, identifier: str, password: str
     ) -> Optional[User]:
         """
-        验证用户凭证（支持用户名或邮箱登录）
+        验证用户凭证（支持用户名、邮箱或手机号登录）
 
         Args:
             db: 数据库会话
-            identifier: 用户名或邮箱
+            identifier: 用户名、邮箱或手机号
             password: 密码
 
         Returns:
             Optional[User]: 验证成功返回用户对象，失败返回None
         """
-        # 查找用户（支持用户名或邮箱）
-        # 判断是邮箱还是用户名
+        # 查找用户（支持用户名、邮箱或手机号）
+        # 判断是邮箱、手机号还是用户名
         if "@" in identifier:
             # 使用邮箱查找
             result = await db.execute(select(User).where(User.email == identifier))
+        elif identifier.isdigit() and len(identifier) == 11:
+            # 使用手机号查找（11位纯数字）
+            result = await db.execute(select(User).where(User.phone == identifier))
         else:
             # 使用用户名查找
             result = await db.execute(select(User).where(User.username == identifier))
