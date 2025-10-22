@@ -73,6 +73,26 @@ async def get_drives(
     }
 
 
+@router.get("/default", response_model=DriveResponse)
+async def get_default_drive(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    获取或创建用户的默认盘符
+
+    Args:
+        current_user: 当前登录用户
+        db: 数据库会话
+
+    Returns:
+        DriveResponse: 默认盘符信息
+    """
+    drive_service = DriveService(db)
+    drive = await drive_service.get_or_create_default_drive(current_user.id)
+    return drive
+
+
 @router.get("/stats", response_model=DriveStatsResponse)
 async def get_drive_stats(
     current_user: User = Depends(get_current_user),

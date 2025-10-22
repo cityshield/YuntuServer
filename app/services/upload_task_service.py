@@ -62,6 +62,9 @@ class UploadTaskService:
             )
 
         # 创建上传任务
+        # 使用 mode='json' 确保所有 UUID 和其他类型都被正确序列化为 JSON 兼容的格式
+        manifest_dict = upload_manifest.model_dump(mode='json')
+
         task = UploadTask(
             user_id=user_id,
             drive_id=upload_manifest.drive_id,
@@ -69,7 +72,7 @@ class UploadTaskService:
             priority=upload_manifest.priority,
             total_files=upload_manifest.total_files,
             total_size=upload_manifest.total_size,
-            upload_manifest=upload_manifest.model_dump(),
+            upload_manifest=manifest_dict,
             status=TaskStatus.PENDING,
         )
         self.db.add(task)
@@ -444,3 +447,119 @@ class UploadTaskService:
         )
 
         return manifest
+
+    async def mark_file_completed(
+        self,
+        task_id: UUID,
+        file_id: UUID,
+        user_id: UUID,
+        oss_key: str,
+        oss_url: str,
+        md5: Optional[str] = None,
+        file_size: Optional[int] = None,
+    ) -> TaskFile:
+        """
+        标记文件上传完成
+
+        根据架构文档 §六.阶段3
+        1. 更新 TaskFile 状态为 COMPLETED
+        2. 创建 File 数据库记录
+        3. 更新 UploadTask 进度计数器
+        4. 检查并自动完成任务
+
+        Args:
+            task_id: 任务ID
+            file_id: 任务文件ID（TaskFile.id）
+            user_id: 用户ID
+            oss_key: OSS对象键
+            oss_url: OSS访问URL
+            md5: MD5哈希值
+            file_size: 实际文件大小
+
+        Returns:
+            TaskFile: 更新后的任务文件对象
+
+        Raises:
+            HTTPException: 任务不存在或无权限
+        """
+        # 验证任务所有权
+        task = await self.get_task(task_id, user_id)
+        if not task:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Task not found or access denied"
+            )
+
+        # 查询 TaskFile
+        task_file_result = await self.db.execute(
+            select(TaskFile).where(
+                TaskFile.id == file_id,
+                TaskFile.task_id == task_id
+            )
+        )
+        task_file = task_file_result.scalar_one_or_none()
+        if not task_file:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Task file not found"
+            )
+
+        # 更新 TaskFile
+        task_file.status = FileUploadStatus.COMPLETED
+        task_file.oss_key = oss_key
+        task_file.oss_url = oss_url
+        task_file.upload_progress = 100.0
+        task_file.completed_at = datetime.utcnow()
+
+        if md5:
+            task_file.md5 = md5
+        if file_size:
+            task_file.file_size = file_size
+
+        # 创建 File 数据库记录
+        # 根据 target_folder_path 查找 folder_id
+        folder_id = None
+        if task_file.target_folder_path and task_file.target_folder_path != "/":
+            folder_result = await self.db.execute(
+                select(Folder).where(
+                    Folder.drive_id == task.drive_id,
+                    Folder.path == task_file.target_folder_path
+                )
+            )
+            folder = folder_result.scalar_one_or_none()
+            if folder:
+                folder_id = folder.id
+
+        # 创建 File 记录
+        file_record = File(
+            drive_id=task.drive_id,
+            folder_id=folder_id,
+            name=task_file.file_name,
+            oss_key=oss_key,
+            oss_url=oss_url,
+            size=task_file.file_size,
+            md5=task_file.md5,
+            mime_type=task_file.mime_type,
+            uploaded_by=user_id,
+        )
+        self.db.add(file_record)
+        await self.db.flush()
+
+        # 更新 TaskFile 的 file_id
+        task_file.file_id = file_record.id
+
+        # 更新 UploadTask 进度
+        task.uploaded_files = task.uploaded_files + 1
+        task.uploaded_size = task.uploaded_size + task_file.file_size
+
+        # 如果任务还在 PENDING 状态，改为 UPLOADING
+        if task.status == TaskStatus.PENDING:
+            task.status = TaskStatus.UPLOADING
+
+        await self.db.commit()
+        await self.db.refresh(task_file)
+
+        # 检查是否所有文件都已完成，自动完成任务
+        await self.check_and_complete_task(task_id)
+
+        return task_file

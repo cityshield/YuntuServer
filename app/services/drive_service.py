@@ -277,3 +277,45 @@ class DriveService:
             "available_size": available_size,
             "usage_percentage": usage_percentage,
         }
+
+    async def get_or_create_default_drive(self, user_id: UUID) -> Drive:
+        """
+        获取或创建用户的默认盘符
+
+        Args:
+            user_id: 用户ID
+
+        Returns:
+            Drive: 默认盘符对象
+        """
+        # 查找用户的第一个个人盘符
+        query = (
+            select(Drive)
+            .where(
+                Drive.user_id == user_id,
+                Drive.is_team_drive == False
+            )
+            .order_by(Drive.created_at.asc())
+            .limit(1)
+        )
+        result = await self.db.execute(query)
+        drive = result.scalar_one_or_none()
+
+        if drive:
+            return drive
+
+        # 如果没有盘符，创建一个默认盘
+        default_drive = Drive(
+            name="默认盘",
+            icon="📁",
+            description="系统自动创建的默认盘符",
+            total_size=None,  # 无限制
+            is_team_drive=False,
+            user_id=user_id,
+            team_id=None,
+        )
+        self.db.add(default_drive)
+        await self.db.commit()
+        await self.db.refresh(default_drive)
+
+        return default_drive

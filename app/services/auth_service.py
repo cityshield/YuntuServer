@@ -92,6 +92,20 @@ class AuthService:
         await db.flush()
         await db.refresh(new_user)
 
+        # 自动为新用户创建默认盘符
+        from app.models.drive import Drive
+        default_drive = Drive(
+            name="默认盘",
+            icon="📁",
+            description="系统自动创建的默认盘符",
+            total_size=None,  # 无限制
+            is_team_drive=False,
+            user_id=new_user.id,
+            team_id=None,
+        )
+        db.add(default_drive)
+        await db.flush()
+
         return new_user
 
     async def authenticate_user(

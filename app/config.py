@@ -2,8 +2,10 @@
 应用配置管理
 """
 from pydantic_settings import BaseSettings
-from typing import List
+from pydantic import field_validator
+from typing import List, Union
 from functools import lru_cache
+import json
 
 
 class Settings(BaseSettings):
@@ -79,6 +81,18 @@ class Settings(BaseSettings):
     # 微信公众号配置（H5登录 - 可选）
     WECHAT_MP_APP_ID: str = ""
     WECHAT_MP_APP_SECRET: str = ""
+
+    @field_validator('CORS_ORIGINS', mode='before')
+    @classmethod
+    def parse_cors_origins(cls, v: Union[str, List[str]]) -> List[str]:
+        """解析 CORS_ORIGINS，支持从 .env 文件读取 JSON 字符串"""
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except json.JSONDecodeError:
+                # 如果不是 JSON，尝试按逗号分割
+                return [origin.strip() for origin in v.split(',')]
+        return v
 
     class Config:
         env_file = ".env"
