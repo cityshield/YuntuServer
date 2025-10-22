@@ -24,7 +24,10 @@ class OSSService:
             settings.OSS_ENDPOINT,
             settings.OSS_BUCKET_NAME
         )
-        logger.info(f"OSS Service initialized - Bucket: {settings.OSS_BUCKET_NAME}")
+        # 打印关键信息，便于定位 bucket/endpoint 配置
+        logger.info(
+            f"OSS Service initialized - Bucket: {settings.OSS_BUCKET_NAME}, Endpoint: {settings.OSS_ENDPOINT}, BaseURL: {settings.OSS_BASE_URL}"
+        )
 
     def upload_file(
         self,

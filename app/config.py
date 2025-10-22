@@ -71,6 +71,15 @@ class Settings(BaseSettings):
     # Domain
     DOMAIN: str = "api.yuntucv.com"
 
+    # 微信开放平台配置（扫码登录）
+    WECHAT_APP_ID: str = ""
+    WECHAT_APP_SECRET: str = ""
+    WECHAT_REDIRECT_URI: str = ""
+
+    # 微信公众号配置（H5登录 - 可选）
+    WECHAT_MP_APP_ID: str = ""
+    WECHAT_MP_APP_SECRET: str = ""
+
     class Config:
         env_file = ".env"
         case_sensitive = True

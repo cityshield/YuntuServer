@@ -62,3 +62,22 @@ celerybeat.pid
 
 # Docker
 docker-compose.override.yml
+
+# Process ID files
+*.pid
+.*.pid
+
+# Backup files
+*.backup
+
+# Documentation files (optional)
+*_DOCUMENTATION.md
+*_REPORT.md
+*_GUIDE.md
+*_STATUS.md
+*_SETUP.md
+
+# Scripts
+manage_services.sh
+quick_deploy.sh
+start_dev_simple.sh

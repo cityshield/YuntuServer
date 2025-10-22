@@ -27,6 +27,13 @@ class User(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     last_login_at = Column(DateTime(timezone=True), nullable=True)
 
+    # 微信相关字段
+    wechat_openid = Column(String(128), unique=True, nullable=True, index=True)  # 微信开放平台 OpenID
+    wechat_unionid = Column(String(128), unique=True, nullable=True, index=True)  # 微信 UnionID
+    wechat_nickname = Column(String(100), nullable=True)  # 微信昵称
+    wechat_avatar = Column(String(255), nullable=True)  # 微信头像URL
+    wechat_bound_at = Column(DateTime(timezone=True), nullable=True)  # 微信绑定时间
+
     # Relationships
     tasks = relationship("Task", back_populates="user", cascade="all, delete-orphan")
     transactions = relationship("Transaction", back_populates="user", cascade="all, delete-orphan")

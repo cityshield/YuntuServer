@@ -26,7 +26,10 @@ class STSService:
         )
 
         self.client = StsClient(config)
-        logger.info("STS Service initialized")
+        # 记录关键信息以便排查区域/凭证问题
+        logger.info(
+            f"STS Service initialized - endpoint: {getattr(settings, 'STS_ENDPOINT', 'sts.cn-beijing.aliyuncs.com')}"
+        )
 
     def get_upload_credentials(
         self,
