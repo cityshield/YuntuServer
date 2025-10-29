@@ -1,0 +1,58 @@
+# ========================================
+# Systemd 服务配置文件
+# 服务名称: yuntu-server
+# ========================================
+# 使用说明：
+# 1. 将此文件复制到服务器: /etc/systemd/system/yuntu-server.service
+# 2. 重载 systemd: systemctl daemon-reload
+# 3. 启动服务: systemctl start yuntu-server
+# 4. 设置开机自启: systemctl enable yuntu-server
+# 5. 查看状态: systemctl status yuntu-server
+# 6. 查看日志: journalctl -u yuntu-server -f
+# ========================================
+
+[Unit]
+Description=Yuntu Server - FastAPI Application
+After=network.target postgresql.service redis.service
+Wants=postgresql.service redis.service
+
+[Service]
+Type=notify
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/api
+Environment="PATH=/var/www/api/venv/bin"
+
+# 执行命令（使用 gunicorn + uvicorn workers）
+ExecStart=/var/www/api/venv/bin/gunicorn app.main:app \
+    --workers 4 \
+    --worker-class uvicorn.workers.UvicornWorker \
+    --bind 127.0.0.1:8000 \
+    --timeout 300 \
+    --keep-alive 5 \
+    --access-logfile /var/www/api/logs/access.log \
+    --error-logfile /var/www/api/logs/error.log \
+    --log-level info
+
+# 自动重启配置
+Restart=always
+RestartSec=10
+StartLimitInterval=0
+
+# 资源限制
+LimitNOFILE=65535
+LimitNPROC=4096
+
+# 安全加固
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/www/api/logs /var/www/api/temp_uploads
+
+# 环境变量
+Environment="PYTHONUNBUFFERED=1"
+Environment="PYTHONDONTWRITEBYTECODE=1"
+
+[Install]
+WantedBy=multi-user.target

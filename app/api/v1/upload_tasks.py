@@ -16,8 +16,10 @@ from app.schemas.upload_task import (
     UploadTaskResponse,
     UploadTaskListResponse,
     TaskFileListResponse,
+    TaskFileResponse,
     UploadProgressResponse,
     StorageManifest,
+    FileCompleteRequest,
 )
 from app.schemas.file_upload import DownloadLinkResponse, ArchiveRequest, ArchiveResponse
 from app.services.upload_task_service import UploadTaskService
@@ -194,6 +196,43 @@ async def get_upload_progress(
         remaining_size=task.remaining_size,
         updated_at=task.updated_at or task.created_at,
     )
+
+
+@router.post("/{task_id}/files/{file_id}/complete", response_model=TaskFileResponse)
+async def mark_file_complete(
+    task_id: UUID = Path(..., description="任务ID"),
+    file_id: UUID = Path(..., description="文件ID"),
+    request: FileCompleteRequest = ...,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    标记文件上传完成
+
+    客户端在完成 OSS 直传后调用此接口通知服务器
+    服务器会更新 TaskFile 状态并创建 File 数据库记录
+
+    Args:
+        task_id: 任务ID
+        file_id: 文件ID (TaskFile.id)
+        request: 文件完成信息
+        current_user: 当前登录用户
+        db: 数据库会话
+
+    Returns:
+        TaskFileResponse: 更新后的文件信息
+    """
+    service = UploadTaskService(db)
+    task_file = await service.mark_file_completed(
+        task_id=task_id,
+        file_id=file_id,
+        user_id=current_user.id,
+        oss_key=request.oss_key,
+        oss_url=request.oss_url,
+        md5=request.md5,
+        file_size=request.file_size,
+    )
+    return task_file
 
 
 @router.put("/{task_id}/cancel", response_model=UploadTaskResponse)

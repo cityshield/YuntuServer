@@ -81,3 +81,6 @@ docker-compose.override.yml
 manage_services.sh
 quick_deploy.sh
 start_dev_simple.sh
+
+# 上下文提取文件
+context*.json

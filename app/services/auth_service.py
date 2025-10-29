@@ -26,7 +26,6 @@ class AuthService:
         self,
         db: AsyncSession,
         username: str,
-        email: Optional[str],
         password: str,
         phone: Optional[str] = None,
     ) -> User:
@@ -36,7 +35,6 @@ class AuthService:
         Args:
             db: 数据库会话
             username: 用户名
-            email: 邮箱（可选）
             password: 密码
             phone: 手机号（必填）
 
@@ -44,7 +42,7 @@ class AuthService:
             User: 创建的用户对象
 
         Raises:
-            HTTPException: 用户名、邮箱或手机号已存在
+            HTTPException: 用户名或手机号已存在
         """
         # 检查用户名是否已存在
         result = await db.execute(select(User).where(User.username == username))
@@ -54,16 +52,6 @@ class AuthService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Username already registered",
             )
-
-        # 检查邮箱是否已存在（如果提供）
-        if email:
-            result = await db.execute(select(User).where(User.email == email))
-            existing_email = result.scalar_one_or_none()
-            if existing_email:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Email already registered",
-                )
 
         # 检查手机号是否已存在（必填）
         if phone:
@@ -79,7 +67,6 @@ class AuthService:
         hashed_password = get_password_hash(password)
         new_user = User(
             username=username,
-            email=email,
             password_hash=hashed_password,
             phone=phone,
             balance=0.00,
@@ -112,22 +99,19 @@ class AuthService:
         self, db: AsyncSession, identifier: str, password: str
     ) -> Optional[User]:
         """
-        验证用户凭证（支持用户名、邮箱或手机号登录）
+        验证用户凭证（支持用户名或手机号登录）
 
         Args:
             db: 数据库会话
-            identifier: 用户名、邮箱或手机号
+            identifier: 用户名或手机号
             password: 密码
 
         Returns:
             Optional[User]: 验证成功返回用户对象，失败返回None
         """
-        # 查找用户（支持用户名、邮箱或手机号）
-        # 判断是邮箱、手机号还是用户名
-        if "@" in identifier:
-            # 使用邮箱查找
-            result = await db.execute(select(User).where(User.email == identifier))
-        elif identifier.isdigit() and len(identifier) == 11:
+        # 查找用户（支持用户名或手机号）
+        # 判断是手机号还是用户名
+        if identifier.isdigit() and len(identifier) == 11:
             # 使用手机号查找（11位纯数字）
             result = await db.execute(select(User).where(User.phone == identifier))
         else:
@@ -167,13 +151,13 @@ class AuthService:
         # 创建访问令牌
         access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
         access_token = create_access_token(
-            data={"sub": str(user.id), "email": user.email},
+            data={"sub": str(user.id)},
             expires_delta=access_token_expires,
         )
 
         # 创建刷新令牌
         refresh_token = create_refresh_token(
-            data={"sub": str(user.id), "email": user.email}
+            data={"sub": str(user.id)}
         )
 
         # 将刷新令牌存储到数据库
@@ -258,7 +242,7 @@ class AuthService:
         # 创建新的访问令牌
         access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
         new_access_token = create_access_token(
-            data={"sub": str(user.id), "email": user.email},
+            data={"sub": str(user.id)},
             expires_delta=access_token_expires,
         )
 

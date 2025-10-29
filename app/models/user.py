@@ -16,7 +16,7 @@ class User(Base):
 
     id = Column(UUID(), primary_key=True, default=uuid.uuid4, index=True)
     username = Column(String(50), unique=True, nullable=False, index=True)
-    email = Column(String(100), unique=True, nullable=True, index=True)  # 邮箱可选
+    # email = Column(String(100), unique=True, nullable=True, index=True)  # 已废弃：不再使用邮箱字段
     phone = Column(String(20), unique=True, nullable=False, index=True)  # 手机号必填
     password_hash = Column(String(255), nullable=False)
     avatar = Column(String(255), nullable=True)

@@ -19,11 +19,6 @@ class UserBase(BaseModel):
         description="用户名",
         examples=["zhangsan"]
     )
-    email: EmailStr = Field(
-        ...,
-        description="邮箱",
-        examples=["zhangsan@example.com"]
-    )
     phone: Optional[str] = Field(
         None,
         max_length=20,
@@ -74,11 +69,6 @@ class UserUpdate(BaseModel):
         description="用户名",
         examples=["zhangsan"]
     )
-    email: Optional[EmailStr] = Field(
-        None,
-        description="邮箱",
-        examples=["zhangsan@example.com"]
-    )
     phone: Optional[str] = Field(
         None,
         max_length=20,
@@ -111,7 +101,6 @@ class UserResponse(BaseModel):
 
     id: UUID
     username: str
-    email: str
     phone: Optional[str]
     avatar: Optional[str]
     balance: Decimal = Field(..., description="余额")
@@ -129,7 +118,6 @@ class UserProfile(BaseModel):
 
     id: UUID
     username: str
-    email: str
     phone: Optional[str]
     avatar: Optional[str]
     member_level: int = Field(..., description="会员等级")

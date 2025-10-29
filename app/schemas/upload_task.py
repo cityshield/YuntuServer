@@ -206,3 +206,14 @@ class UploadProgressResponse(BaseModel):
     remaining_files: int
     remaining_size: int
     updated_at: datetime
+
+
+# ==================== 文件完成通知 ====================
+
+class FileCompleteRequest(BaseModel):
+    """文件上传完成通知请求"""
+
+    oss_key: str = Field(..., max_length=1024, description="OSS对象键")
+    oss_url: str = Field(..., max_length=2048, description="OSS访问URL")
+    md5: Optional[str] = Field(None, max_length=32, description="MD5哈希值")
+    file_size: int = Field(..., ge=0, description="实际文件大小（字节）")

@@ -2,7 +2,7 @@
 API v1 路由聚合
 """
 from fastapi import APIRouter
-from app.api.v1 import auth, files, users, tasks, logs, config, wechat, drives, upload_tasks, file_uploads
+from app.api.v1 import auth, files, users, tasks, logs, config, wechat, drives, upload_tasks, file_uploads, oss_callback
 
 api_router = APIRouter()
 
@@ -20,6 +20,9 @@ api_router.include_router(upload_tasks.router)
 
 # 文件上传路由
 api_router.include_router(file_uploads.router)
+
+# OSS 回调路由（无需认证，OSS 直接调用）
+api_router.include_router(oss_callback.router)
 
 # 文件路由
 api_router.include_router(files.router, prefix="/files", tags=["Files"])

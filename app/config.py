@@ -33,8 +33,8 @@ class Settings(BaseSettings):
     # JWT
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 43200  # 30天 = 30 * 24 * 60 = 43200分钟
-    REFRESH_TOKEN_EXPIRE_DAYS: int = 60  # 刷新令牌延长到60天
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 120  # 2小时 (符合蓝图规范：Web控制台短期有效)
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7  # 7天 (符合蓝图规范)
 
     # Aliyun OSS
     OSS_ACCESS_KEY_ID: str
@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     OSS_BASE_URL: str
     OSS_SCENE_FOLDER: str = "scenes"
     OSS_RESULT_FOLDER: str = "results"
+
+    # OSS 回调配置
+    OSS_CALLBACK_URL: str = ""  # OSS 上传成功后的回调 URL（完整URL，如 https://api.yuntucv.com/api/v1/oss-callback/upload-complete）
+    OSS_CALLBACK_HOST: str = ""  # 回调 Host（用于签名验证，如 api.yuntucv.com）
 
     # Aliyun STS
     OSS_ROLE_ARN: str

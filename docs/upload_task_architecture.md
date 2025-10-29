@@ -563,3 +563,213 @@ storage_saved = sum(
 ---
 
 **文档状态**: ✅ 架构设计完成，等待实施
+
+## 十一、待办事项：文件去重与秒传改造方案
+
+> **更新时间**: 2025-10-28
+> **状态**: ⏳ 待实施
+> **优先级**: 高
+
+### 11.1 问题背景
+
+当前系统存在以下问题：
+1. `files` 表的 `oss_key` 字段有 UNIQUE 唯一约束
+2. 同一用户多次上传相同文件会报错：`duplicate key value violates unique constraint`
+3. 不同用户上传相同文件也会冲突
+4. 无法实现真正的秒传和存储去重
+
+### 11.2 改造目标
+
+- 用户感觉每次都"上传"成功，有独立的记录
+- 实际上相同文件（MD5相同）只在 OSS 存储一份
+- 不同用户/多次上传复用同一个 OSS 文件
+- 节省存储空间和上传时间
+
+### 11.3 数据库改造
+
+#### 修改 `files` 表结构
+
+**当前**：
+```python
+oss_key = Column(String(512), nullable=False, unique=True, index=True)  # ❌ UNIQUE 约束
+```
+
+**修改为**：
+```python
+oss_key = Column(String(512), nullable=False, index=True)  # ✅ 移除 unique=True
+```
+
+**迁移脚本** (`alembic revision -m "remove_oss_key_unique_constraint"`):
+```python
+def upgrade():
+    # 删除唯一索引
+    op.drop_index('ix_files_oss_key', table_name='files')
+    # 重新创建为普通索引
+    op.create_index('ix_files_oss_key', 'files', ['oss_key'], unique=False)
+
+def downgrade():
+    op.drop_index('ix_files_oss_key', table_name='files')
+    op.create_index('ix_files_oss_key', 'files', ['oss_key'], unique=True)
+```
+
+**执行迁移前准备**：
+1. **备份数据库**：
+   ```bash
+   pg_dump -h localhost -U postgres -d yuntu_db -F c -f backup_$(date +%Y%m%d_%H%M%S).dump
+   ```
+
+2. **验证约束名称**：
+   ```sql
+   SELECT indexname, indexdef FROM pg_indexes
+   WHERE tablename = 'files' AND indexname = 'ix_files_oss_key';
+   ```
+
+3. **低峰期执行迁移**（凌晨2-4点推荐）
+
+### 11.4 服务端逻辑改造
+
+#### 11.4.1 增强秒传检测
+
+**修改文件**: `app/services/upload_task_service.py`
+
+**方法**: `check_files_md5`
+
+**改进点**：
+1. 查询范围扩大到**全局** files 表（不限用户）
+2. 返回已存在文件的 `oss_key` 和 `oss_url`
+3. 自动标记为 SKIPPED 状态，复用 OSS 资源
+
+**核心代码**：
+```python
+# 查询全局是否有相同 MD5 的文件（不限用户）
+existing_file_result = await self.db.execute(
+    select(File)
+    .where(File.md5 == md5)
+    .where(File.deleted_at.is_(None))  # 排除已删除
+    .limit(1)
+)
+existing_file = existing_file_result.scalar_one_or_none()
+
+if existing_file:
+    # 秒传：复用 oss_key 和 oss_url
+    task_file.status = FileUploadStatus.SKIPPED
+    task_file.is_duplicated = True
+    task_file.duplicated_from = existing_file.id
+    task_file.oss_key = existing_file.oss_key
+    task_file.oss_url = existing_file.oss_url
+    task_file.upload_progress = 100.0
+    task_file.completed_at = datetime.utcnow()
+```
+
+#### 11.4.2 修复文件完成回调
+
+**修改文件**: `app/services/upload_task_service.py`
+
+**方法**: `mark_file_completed`
+
+**改进点**：
+1. 检查是否已有相同 `oss_key` 的文件
+2. 如果已存在，复用 `file_id`（处理并发/重试场景）
+3. 如果不存在，创建新的 File 记录（允许多条记录共享 oss_key）
+
+**核心代码**：
+```python
+# 检查是否已有相同 oss_key 的 File 记录
+existing_file_result = await self.db.execute(
+    select(File).where(
+        File.oss_key == oss_key,
+        File.drive_id == task.drive_id
+    )
+)
+existing_file = existing_file_result.scalar_one_or_none()
+
+if existing_file:
+    # 复用已存在的 file_id
+    task_file.file_id = existing_file.id
+    task_file.is_duplicated = True
+    task_file.duplicated_from = existing_file.id
+else:
+    # 创建新的 File 记录（允许重复 oss_key）
+    file_record = File(
+        drive_id=task.drive_id,
+        folder_id=folder_id,
+        name=task_file.file_name,
+        oss_key=oss_key,  # ✅ 可以重复
+        oss_url=oss_url,
+        md5=task_file.md5,
+        ...
+    )
+    self.db.add(file_record)
+    await self.db.flush()
+    task_file.file_id = file_record.id
+```
+
+### 11.5 客户端逻辑改造
+
+**修改文件**: `src/utils/upload/UploadManager.ts`
+
+**改进点**：
+1. 秒传文件直接标记成功，无需上传
+2. 使用服务端返回的 `oss_url` 和 `oss_key`
+
+**核心代码**：
+```typescript
+if (isDuplicated) {
+  const duplicatedInfo = checkResult.duplicated_files.find(
+    (d: any) => d.file_name === file.name
+  )
+
+  const task = this.addTask(file, taskId, true)
+  if (task) {
+    task.serverTaskId = response.id
+    task.serverFileId = fileMap.get(file.name)
+    task.status = Status.SUCCESS
+    task.progress = 100
+    task.uploadedSize = file.size
+    task.completedAt = Date.now()
+    task.md5 = md5Info?.md5
+    task.url = duplicatedInfo.oss_url  // ✅ 复用
+    task.objectKey = duplicatedInfo.oss_key  // ✅ 复用
+
+    console.log(`✅ 秒传成功: ${file.name}`)
+  }
+}
+```
+
+### 11.6 实施步骤
+
+- [ ] **Step 1**: 数据库备份（生产环境）
+- [ ] **Step 2**: 创建 Alembic 迁移脚本
+- [ ] **Step 3**: 在开发/测试环境验证迁移
+- [ ] **Step 4**: 修改服务端代码
+  - [ ] 增强 `check_files_md5` 方法
+  - [ ] 修复 `mark_file_completed` 方法
+- [ ] **Step 5**: 修改客户端代码
+  - [ ] 优化秒传处理逻辑
+- [ ] **Step 6**: 生产环境执行迁移（低峰期）
+- [ ] **Step 7**: 测试验证
+  - [ ] 同一用户重复上传
+  - [ ] 不同用户上传相同文件
+  - [ ] 验证 OSS 存储无重复
+
+### 11.7 风险评估
+
+| 风险 | 可能性 | 影响 | 缓解措施 |
+|------|--------|------|----------|
+| 数据丢失 | 极低 | 高 | 提前备份 |
+| 迁移失败 | 低 | 中 | 使用事务，测试SQL |
+| 应用报错 | 低 | 中 | 低峰期执行，准备回滚 |
+| 性能下降 | 极低 | 低 | 索引仍然存在 |
+
+### 11.8 预期收益
+
+- **存储节省**: 相同文件只存一份，节省 OSS 存储成本
+- **上传加速**: 秒传功能大幅提升上传速度
+- **用户体验**: 避免重复上传报错，体验更流畅
+- **系统稳定**: 解决 UNIQUE 约束冲突问题
+
+---
+
+**待办状态**: ⏳ 等待实施
+**负责人**: 待分配
+**预计工期**: 2-3 天（含测试）

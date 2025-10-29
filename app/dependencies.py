@@ -3,13 +3,15 @@
 """
 from typing import AsyncGenerator, Optional
 from uuid import UUID
-from fastapi import Depends, HTTPException, status, Query
+from fastapi import Depends, HTTPException, status, Query, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.db.session import get_db
 from app.core.security import decode_token, verify_token_type
+from app.core.rate_limiter import RateLimiter, get_client_ip
+from app.db.redis import get_redis
 from app.models.user import User
 from app.models.task import Task
 
@@ -252,3 +254,84 @@ def check_member_level(required_level: int):
         return current_user
 
     return _check_member_level
+
+
+# ==================== 限流依赖注入函数 ====================
+
+async def check_login_rate_limit(request: Request) -> None:
+    """
+    登录接口限流检查
+    蓝图规范: 同IP 1分钟最多5次
+    """
+    redis = await get_redis()
+    limiter = RateLimiter(redis)
+    client_ip = get_client_ip(request)
+
+    allowed, info = await limiter.check_rate_limit(
+        key="login",
+        max_requests=5,
+        window_seconds=60,
+        identifier=client_ip
+    )
+
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"登录请求过于频繁,请在 {info['retry_after']} 秒后重试",
+            headers={
+                "X-RateLimit-Limit": str(info['limit']),
+                "X-RateLimit-Remaining": str(info['remaining']),
+                "X-RateLimit-Reset": str(info['reset']),
+                "Retry-After": str(info['retry_after'])
+            }
+        )
+
+
+async def check_sms_rate_limit(request: Request, phone: str) -> None:
+    """
+    短信验证码接口限流检查
+    蓝图规范:
+    - 同手机号: 1分钟1次
+    - 同手机号: 1小时5次
+    - 同IP: 1小时10次
+    """
+    redis = await get_redis()
+    limiter = RateLimiter(redis)
+    client_ip = get_client_ip(request)
+
+    # 定义多个限流规则
+    limits = [
+        {
+            'key': 'sms_phone_minute',
+            'max_requests': 1,
+            'window_seconds': 60,
+            'identifier': phone
+        },
+        {
+            'key': 'sms_phone_hour',
+            'max_requests': 5,
+            'window_seconds': 3600,
+            'identifier': phone
+        },
+        {
+            'key': 'sms_ip_hour',
+            'max_requests': 10,
+            'window_seconds': 3600,
+            'identifier': client_ip
+        }
+    ]
+
+    # 检查所有限流规则
+    allowed, info = await limiter.check_multiple_limits(limits)
+
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"验证码请求过于频繁,请在 {info['retry_after']} 秒后重试",
+            headers={
+                "X-RateLimit-Limit": str(info['limit']),
+                "X-RateLimit-Remaining": str(info['remaining']),
+                "X-RateLimit-Reset": str(info['reset']),
+                "Retry-After": str(info['retry_after'])
+            }
+        )

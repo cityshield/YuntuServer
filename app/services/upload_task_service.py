@@ -12,7 +12,7 @@ from app.models.upload_task import UploadTask, TaskStatus
 from app.models.task_file import TaskFile, FileUploadStatus
 from app.models.folder import Folder
 from app.models.drive import Drive
-from app.models.file import File
+from app.models.file import File, UploadSource
 from app.schemas.upload_task import (
     UploadManifest,
     UploadTaskUpdate,
@@ -345,7 +345,7 @@ class UploadTaskService:
 
             # 更新任务状态
             task.status = TaskStatus.COMPLETED
-            task.storage_manifest = storage_manifest.model_dump()
+            task.storage_manifest = storage_manifest.model_dump(mode='json')
             task.completed_at = datetime.utcnow()
 
             await self.db.commit()
@@ -530,17 +530,24 @@ class UploadTaskService:
             if folder:
                 folder_id = folder.id
 
+        # 提取文件扩展名
+        import os
+        extension = os.path.splitext(task_file.file_name)[1]  # 如 ".ma", ".zip"
+
         # 创建 File 记录
         file_record = File(
             drive_id=task.drive_id,
             folder_id=folder_id,
             name=task_file.file_name,
+            original_name=task_file.file_name,  # 原始文件名
+            extension=extension,                 # 文件扩展名
             oss_key=oss_key,
             oss_url=oss_url,
             size=task_file.file_size,
             md5=task_file.md5,
             mime_type=task_file.mime_type,
             uploaded_by=user_id,
+            upload_source=UploadSource.CLIENT,  # 客户端上传
         )
         self.db.add(file_record)
         await self.db.flush()

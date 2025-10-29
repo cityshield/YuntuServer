@@ -1,7 +1,7 @@
 """
 认证相关的 API 端点
 """
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
@@ -19,8 +19,18 @@ from app.schemas.auth import (
 )
 from app.services.auth_service import auth_service
 from app.services.sms_service import sms_service
+from app.dependencies import check_login_rate_limit, check_sms_rate_limit
 
 router = APIRouter(prefix="/auth", tags=["认证"])
+
+
+# 短信限流检查包装器
+async def check_sms_rate_limit_wrapper(
+    http_request: Request,
+    request: SendCodeRequest
+) -> None:
+    """包装器:调用短信限流检查"""
+    await check_sms_rate_limit(http_request, request.phone)
 
 
 @router.post(
@@ -29,6 +39,7 @@ router = APIRouter(prefix="/auth", tags=["认证"])
     status_code=status.HTTP_200_OK,
     summary="发送短信验证码",
     description="向指定手机号发送验证码，验证码有效期30分钟",
+    dependencies=[Depends(check_sms_rate_limit_wrapper)]
 )
 async def send_verification_code(
     request: SendCodeRequest,
@@ -89,7 +100,6 @@ async def register(
     user = await auth_service.register_user(
         db=db,
         username=user_data.username,
-        email=user_data.email,
         password=user_data.password,
         phone=user_data.phone,
     )
@@ -119,8 +129,10 @@ async def register(
     status_code=status.HTTP_200_OK,
     summary="用户登录",
     description="使用邮箱和密码登录，返回访问令牌",
+    dependencies=[Depends(check_login_rate_limit)]
 )
 async def login(
+    request: Request,
     credentials: LoginRequest,
     db: AsyncSession = Depends(get_db),
 ):

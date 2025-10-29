@@ -22,7 +22,8 @@ def get_password_hash(password: str) -> str:
     """生成密码哈希"""
     # bcrypt 最大支持 72 字节
     password_bytes = password.encode('utf-8')[:72]
-    salt = bcrypt.gensalt()
+    # 使用 cost factor = 12（符合蓝图规范）
+    salt = bcrypt.gensalt(rounds=12)
     hashed = bcrypt.hashpw(password_bytes, salt)
     return hashed.decode('utf-8')
 

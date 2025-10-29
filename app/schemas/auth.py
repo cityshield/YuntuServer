@@ -105,11 +105,6 @@ class RegisterRequest(BaseModel):
         description="密码（至少6个字符）",
         examples=["password123"]
     )
-    email: Optional[EmailStr] = Field(
-        default=None,
-        description="邮箱地址（可选）",
-        examples=["zhangsan@example.com"]
-    )
 
     @field_validator('username')
     @classmethod
@@ -271,7 +266,6 @@ class UserResponse(BaseModel):
 
     id: UUID
     username: str
-    email: Optional[str]  # 邮箱可选
     phone: str  # 手机号必填
     avatar: Optional[str]
     balance: float
